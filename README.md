@@ -1,33 +1,46 @@
-# Atas
+# Solven Atas
 
-App (PWA) para gravar reuniões presenciais no iPhone, transcrever o áudio e gerar a ata automaticamente com o Google Gemini. A ata pode ser baixada em PDF ou Word no padrão visual Solven.
+App (PWA) para gravar reuniões presenciais no celular, transcrever o áudio e gerar a ata automaticamente com o Google Gemini. A ata sai em PDF ou Word no padrão visual Solven.
 
-Publicado em: https://atas-reunioes.vercel.app
+- **Endereço:** https://portal.solven.com.br:4443/solven-atas/
+- **Servidor:** `SOLTOTVS`, pasta `C:\inetpub\wwwroot\solven-atas` (`\\SOLTOTVS\wwwroot\solven-atas`), serviço Windows `SolvenAtasNode` (Node.js 24 em `127.0.0.1:3001`) atrás do IIS.
+- **Banco:** SQL Server `192.168.0.250`, banco `atas_bd`, usuário `pwa` (o mesmo servidor e usuário do Controle de Despesas).
+- **Login:** conta Microsoft da Solven (Entra ID). Cada pessoa vê somente as próprias reuniões.
 
 ## Como funciona
 
-1. **Gravação** (`app.js`): grava pelo microfone em trechos de 10 minutos, com cópia de segurança no próprio aparelho (IndexedDB). Cada trecho vai para o Supabase Storage (bucket `ata-audios`).
-2. **Transcrição e ata** (`supabase/functions/atas-ia`): função do Supabase que envia cada trecho ao Gemini, junta as transcrições e escreve a ata em Markdown.
-3. **PDF e Word** (`api/pdf.js`, `api/docx.js`): funções da Vercel que montam a ata no padrão Solven.
-   - PDF: gerado com Chromium (`@sparticuz/chromium`), a partir de `pdf.js` e `pdf.css`.
-   - Word: gerado com a biblioteca `docx` (`lib/ata-docx.js`), tudo editável.
+1. **Gravação** (`app.js`): o celular grava em trechos de 10 minutos, guarda uma cópia no aparelho (IndexedDB) e envia cada trecho ao servidor assim que fica pronto. Se a internet cair, o trecho sobe depois.
+2. **Transcrição** (`server/processador.js`, `server/gemini.js`): o servidor transcreve cada trecho com o Gemini assim que ele chega, em segundo plano. Não é preciso deixar o app aberto.
+3. **Ata**: ao encerrar a gravação, o servidor junta as transcrições e o Gemini redige a ata (síntese, pauta, discussões, deliberações, encaminhamentos, pendências).
+4. **PDF e Word** (`server/documentos.js`, `lib/`): o PDF é gerado com o Microsoft Edge do servidor (sem janela); o Word com a biblioteca `docx`, totalmente editável.
+
+Os áudios ficam no SQL Server (`dbo.ata_segmentos.audio_data`) até a pessoa tocar em **Apagar o áudio**; a transcrição e a ata continuam guardadas.
 
 ## Estrutura
 
 | Caminho | O que é |
 |---|---|
-| `index.html`, `app.js`, `style.css`, `sw.js`, `manifest.webmanifest`, `icons/` | O app (PWA) |
+| `index.html`, `app.js`, `style.css`, `sw.js`, `icons/` | O app (PWA) |
 | `pdf.js`, `pdf.css`, `brand/` | Layout da ata no padrão Solven |
-| `api/pdf.js`, `api/docx.js`, `lib/` | Geração de PDF e Word na Vercel |
-| `supabase/functions/atas-ia/` | Transcrição e geração da ata (Gemini) |
-| `supabase/migrations/` | Tabelas `ata_reunioes` e `ata_segmentos`, regras de acesso e bucket de áudio |
+| `server/` | Servidor Node (Express): login Microsoft, API, processamento, PDF/Word |
+| `lib/` | Montagem da ata em HTML (PDF) e Word |
+| `migrations/` | Scripts do banco `atas_bd` (criar banco, tabelas, permissões do `pwa`) |
+| `service/`, `scripts/Instalar-Servico.ps1` | Serviço Windows (WinSW) e instalação |
+| `web.config` | Regra do IIS que repassa `/solven-atas` ao Node |
+| `test/` | Testes automáticos (`npm test`) |
 
-## Configuração
+## Desenvolvimento
 
-- **Supabase:** projeto `yrygrpdnemmomukhjmlc`. A função `atas-ia` precisa do segredo `GEMINI_API_KEY` (configurado no painel do Supabase, nunca no código).
-- **Vercel:** projeto `atas-reunioes`, sem etapa de build; as dependências de `package.json` são usadas só pelas funções em `api/`.
-- A chave `anon` do Supabase em `app.js` é pública por natureza; o acesso aos dados é protegido pelas regras de RLS.
+```powershell
+npm install
+npm run check
+npm test
+```
+
+Para rodar localmente, copie `.env.example` para `.env` com `NODE_ENV=development` e `APP_URL=http://localhost:3001/solven-atas`.
+
+A implantação no servidor está em [IMPLANTACAO.md](IMPLANTACAO.md).
 
 ## Fonte
 
-O padrão Solven usa a fonte **Now**, que ainda não está no projeto; por enquanto PDF e Word saem em Arial (no PDF, Arimo com as mesmas medidas).
+O padrão Solven usa a fonte **Now**, que ainda não está no projeto; por enquanto PDF e Word saem em Arial.

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <id>SolvenAtasNode</id>
+  <name>Solven Atas Node</name>
+  <description>Solven Atas - aplicação Node em loopback (porta 3001), publicada pelo IIS em /solven-atas.</description>
+  <executable>C:\Program Files\nodejs\node.exe</executable>
+  <arguments>--use-system-ca --env-file="%BASE%\..\.env.producao" "%BASE%\..\server\index.js"</arguments>
+  <workingdirectory>%BASE%\..</workingdirectory>
+  <env name="TEMP" value="%BASE%\..\data\tmp" />
+  <env name="TMP" value="%BASE%\..\data\tmp" />
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>LocalService</user>
+  </serviceaccount>
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <onfailure action="restart" delay="60 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <stoptimeout>20 sec</stoptimeout>
+  <stopparentprocessfirst>true</stopparentprocessfirst>
+  <logpath>%BASE%\..\logs\winsw</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

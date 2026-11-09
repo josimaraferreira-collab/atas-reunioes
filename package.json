@@ -1,15 +1,27 @@
 {
-  "name": "atas-reunioes",
+  "name": "solven-atas",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": "22.x"
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "test": "node --test",
+    "check": "node --check app.js && node --check sw.js && node --check pdf.js && node --check server/app.js && node --check server/index.js && node --check server/auth.js && node --check server/domain.js && node --check server/util.js && node --check server/repository.js && node --check server/session-store.js && node --check server/gemini.js && node --check server/processador.js && node --check server/documentos.js && node --check lib/ata-html.js && node --check lib/ata-docx.js && node --check lib/ata-dados.js"
   },
   "dependencies": {
-    "@sparticuz/chromium": "133.0.0",
-    "puppeteer-core": "24.2.1",
-    "@fontsource/arimo": "5.1.0",
-    "docx": "9.8.1",
-    "sharp": "0.35.4"
+    "docx": "^9.5.1",
+    "express": "^5.0.0",
+    "express-rate-limit": "^8.0.0",
+    "express-session": "^1.18.0",
+    "helmet": "^8.0.0",
+    "mssql": "^12.7.2",
+    "multer": "^2.0.0",
+    "openid-client": "^6.0.0",
+    "puppeteer-core": "^24.2.1",
+    "sharp": "^0.35.5",
+    "zod": "^4.0.0"
   }
 }

@@ -16,7 +16,7 @@
   --ok: #2c7a4b;
   --radius: 14px;
   --shadow: 0 1px 2px rgba(40, 30, 10, .06), 0 4px 14px rgba(40, 30, 10, .05);
-  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
@@ -245,3 +245,6 @@ a { color: var(--accent); }
 }
 .folha-pdf .t { font: 700 20px/1.2 var(--serif); }
 .folha-pdf .d { color: var(--ink-2); font-size: 14px; margin-bottom: 6px; word-break: break-word; }
+
+.logo-login { width: 150px; height: auto; display: block; margin: 0 0 22px; }
+.login .btn { text-decoration: none; }

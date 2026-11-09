@@ -1,18 +1,29 @@
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-
-const SUPABASE_URL = "https://yrygrpdnemmomukhjmlc.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlyeWdycGRuZW1tb211a2hqbWxjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExMTUwMDgsImV4cCI6MjEwNjY5MTAwOH0.1dL2JOihL4owPdrreItxz3HMCqXv-VDgaJY5Qpn45R4";
-const BUCKET = "ata-audios";
+// Solven Atas — app (PWA). Conversa com o servidor da Solven (Node + SQL Server) em /solven-atas.
+const BASE = document.querySelector('meta[name="app-base"]')?.content || "";
+const rota = (p) => BASE + p;
 const BLOCO_MS = 10 * 60 * 1000; // cada trecho tem até 10 min de áudio
-
-const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: "atas-auth" },
-});
 
 const $app = document.getElementById("app");
 let usuario = null;
 let gravador = null; // gravação em andamento (só uma por vez)
 let pollTimer = null;
+let csrf = "";
+
+// Chamada à API do servidor (mesmo endereço, cookie de sessão + proteção CSRF)
+class ErroApi extends Error { constructor(msg, status) { super(msg); this.status = status; } }
+async function api(caminho, { method = "GET", json, form } = {}) {
+  const headers = {};
+  if (method !== "GET") headers["X-CSRF-Token"] = csrf;
+  let body;
+  if (json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(json); }
+  if (form) body = form;
+  const r = await fetch(rota(caminho), { method, headers, body, credentials: "same-origin" });
+  if (r.status === 401) { if (!gravador) { usuario = null; telaLogin(); } throw new ErroApi("Sua sessão expirou. Entre novamente.", 401); }
+  const tipo = r.headers.get("content-type") || "";
+  const dados = tipo.includes("application/json") ? await r.json().catch(() => null) : null;
+  if (!r.ok) throw new ErroApi(dados?.erro || "Não foi possível falar com o servidor. Tente de novo.", r.status);
+  return dados;
+}
 
 /* ============ utilidades ============ */
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -103,21 +114,19 @@ const idb = {
 function extDe(mime) { return mime.includes("webm") ? "webm" : mime.includes("ogg") ? "ogg" : "m4a"; }
 
 async function enviarTrecho({ k, reuniaoId, ordem, mime, duracao, blob }) {
-  const caminho = `${usuario.id}/${reuniaoId}/${String(ordem).padStart(3, "0")}.${extDe(mime)}`;
   const tipo = mime.split(";")[0];
   for (let tentativa = 0; tentativa < 4; tentativa++) {
     try {
-      const up = await sb.storage.from(BUCKET).upload(caminho, blob, { contentType: tipo, upsert: true });
-      if (up.error) throw up.error;
-      const ins = await sb.from("ata_segmentos").upsert(
-        { reuniao_id: reuniaoId, ordem, audio_path: caminho, mime: tipo, duracao_seg: Math.round(duracao), status: "pendente" },
-        { onConflict: "reuniao_id,ordem" },
-      );
-      if (ins.error) throw ins.error;
+      const form = new FormData();
+      form.append("ordem", String(ordem));
+      form.append("duracao", String(Math.round(duracao || 0)));
+      form.append("audio", new File([blob], `trecho-${String(ordem).padStart(3, "0")}.${extDe(mime)}`, { type: tipo }));
+      await api(`/api/reunioes/${reuniaoId}/trechos`, { method: "POST", form });
       if (k) await idb.apagar(k);
       return true;
     } catch (e) {
       console.warn("envio falhou", e);
+      if (e.status === 401 || e.status === 404 || e.status === 400) return false;
       await new Promise((r) => setTimeout(r, 2000 * (tentativa + 1)));
     }
   }
@@ -138,59 +147,6 @@ async function recuperarPendentes() {
     if (ok) enviados++;
   }
   return enviados;
-}
-
-const processando = new Set();
-async function invocar(body) {
-  const { data, error } = await sb.functions.invoke("atas-ia", { body });
-  if (error) {
-    let msg = error.message;
-    try { const j = await error.context.json(); if (j?.erro) msg = j.erro; } catch {}
-    throw new Error(msg);
-  }
-  return data;
-}
-
-// Transcreve os trechos pendentes e, se a gravação terminou, gera a ata
-async function processarReuniao(reuniaoId, { forcarAta = false } = {}) {
-  if (processando.has(reuniaoId)) return;
-  processando.add(reuniaoId);
-  try {
-    const tentativas = {};
-    while (true) {
-      const { data: segs } = await sb.from("ata_segmentos").select("id,ordem,status")
-        .eq("reuniao_id", reuniaoId).order("ordem");
-      const prox = (segs || []).find((s) => s.status === "pendente" || s.status === "processando");
-      if (!prox) break;
-      tentativas[prox.id] = (tentativas[prox.id] || 0) + 1;
-      if (tentativas[prox.id] > 3) break;
-      try { await invocar({ acao: "transcrever", segmento_id: prox.id }); }
-      catch (e) {
-        toast(e.message, 4000);
-        if (/Limite de uso/.test(e.message)) await new Promise((r) => setTimeout(r, 30000));
-        else break;
-      }
-      atualizarTela(reuniaoId);
-    }
-    const { data: reu } = await sb.from("ata_reunioes").select("status,ata").eq("id", reuniaoId).single();
-    if (!reu || reu.status === "gravando") return;
-    if (gravador && gravador.reuniaoId === reuniaoId) return;
-    const { data: segs } = await sb.from("ata_segmentos").select("status").eq("reuniao_id", reuniaoId);
-    if (!segs?.length || segs.some((s) => s.status !== "ok")) {
-      if (segs?.some((s) => s.status === "erro")) await sb.from("ata_reunioes").update({ status: "erro", erro: "Algum trecho não foi transcrito." }).eq("id", reuniaoId);
-      return;
-    }
-    if (reu.status === "pronta" && !forcarAta) return;
-    await sb.from("ata_reunioes").update({ status: "gerando_ata", erro: null }).eq("id", reuniaoId);
-    atualizarTela(reuniaoId);
-    try {
-      await invocar({ acao: "ata", reuniao_id: reuniaoId });
-      if (location.hash.includes(reuniaoId)) toast("Ata pronta ✓");
-    } catch (e) { toast(e.message, 4500); }
-  } finally {
-    processando.delete(reuniaoId);
-    atualizarTela(reuniaoId);
-  }
 }
 
 function atualizarTela(reuniaoId) {
@@ -254,7 +210,7 @@ class Gravador {
       idb.putBloco(info);
       if (blob.size === 0) { idb.apagar(k); return; }
       const p = enviarTrecho({ ...info, blob }).then((ok) => {
-        if (ok) { this.enviados++; processarReuniao(this.reuniaoId); }
+        if (ok) this.enviados++;
         this.onTick();
       });
       this.envios.push(p);
@@ -395,8 +351,8 @@ const textoPuro = (md) => String(md || "").replace(/^#{1,4}\s+/gm, "").replace(/
 /* ============ PDF no padrão Solven ============ */
 // Gera o arquivo no servidor (PDF ou Word) e oferece Salvar/Enviar (funciona no app instalado no iPhone).
 const TIPOS = {
-  pdf: { rota: "/api/pdf", mime: "application/pdf", nome: "PDF", espera: "Gerando o PDF… pode levar alguns segundos" },
-  docx: { rota: "/api/docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", nome: "Word", espera: "Gerando o Word…" },
+  pdf: { mime: "application/pdf", nome: "PDF", espera: "Gerando o PDF… pode levar alguns segundos" },
+  docx: { mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", nome: "Word", espera: "Gerando o Word…" },
 };
 async function gerarArquivo(reu, botao, tipo) {
   const t = TIPOS[tipo];
@@ -404,13 +360,8 @@ async function gerarArquivo(reu, botao, tipo) {
   if (botao) { botao.disabled = true; botao.innerHTML = '<span class="girando"></span> Gerando…'; }
   toast(t.espera, 6000);
   try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session) throw new Error("Entre no app de novo.");
-    const r = await fetch(t.rota, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ id: reu.id }),
-    });
+    const r = await fetch(rota(`/api/reunioes/${reu.id}/${tipo}`), { credentials: "same-origin" });
+    if (r.status === 401) throw new Error("Sua sessão expirou. Entre novamente.");
     if (!r.ok) {
       let msg = `Não consegui gerar o ${t.nome} agora.`;
       try { const j = await r.json(); if (j?.erro) msg = j.erro; } catch {}
@@ -465,23 +416,17 @@ function rotas() {
 }
 
 function telaLogin() {
+  const erro = new URLSearchParams(location.search).get("authError");
+  const msg = erro === "denied" ? "Sua conta não tem acesso ao Atas. Peça liberação à TI." : erro === "expired" ? "O login demorou demais. Tente de novo." : "";
   $app.innerHTML = `
-    <form class="login" id="f">
+    <div class="login">
+      <img class="logo-login" src="${BASE}/brand/solven-logo-horizontal-color.webp" alt="Solven">
       <div class="marca">Atas</div>
       <p>Grave a reunião e receba a ata pronta.</p>
-      <label class="campo"><span>E-mail</span><input name="email" type="email" autocomplete="username" required></label>
-      <label class="campo"><span>Senha</span><input name="senha" type="password" autocomplete="current-password" required></label>
-      <button class="btn primario bloco" id="entrar">Entrar</button>
-      <p style="margin-top:14px;font-size:14px">Use o mesmo e-mail e senha dos seus outros apps.</p>
-    </form>`;
-  document.getElementById("f").onsubmit = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const b = document.getElementById("entrar");
-    b.disabled = true; b.innerHTML = '<span class="girando"></span>';
-    const { error } = await sb.auth.signInWithPassword({ email: fd.get("email").trim(), password: fd.get("senha") });
-    if (error) { toast("E-mail ou senha incorretos"); b.disabled = false; b.textContent = "Entrar"; }
-  };
+      ${msg ? `<div class="aviso vermelho" style="margin:0 0 16px">${esc(msg)}</div>` : ""}
+      <a class="btn primario bloco" href="${BASE}/auth/login">Entrar com a conta Microsoft</a>
+      <p style="margin-top:14px;font-size:14px">Use o mesmo login da Solven (e-mail e senha da Microsoft).</p>
+    </div>`;
 }
 
 function selo(status) {
@@ -502,15 +447,20 @@ async function telaLista() {
     ${iOS && !padrao && !dicaFechada ? `<div class="dica-instalar">Para instalar: toque em Compartilhar e depois em “Adicionar à Tela de Início”.<button id="fechaDica" aria-label="Fechar">✕</button></div>` : ""}
     <div id="lista"><div class="vazio"><span class="girando"></span></div></div>
     <button class="fab" id="nova"><span class="ponto"></span>Nova reunião</button>`;
-  document.getElementById("sair").onclick = async () => { if (confirm("Sair do app?")) await sb.auth.signOut(); };
+  document.getElementById("sair").onclick = async () => {
+    if (!confirm("Sair do app?")) return;
+    try { await api("/auth/logout", { method: "POST" }); } catch {}
+    usuario = null; telaLogin();
+  };
   document.getElementById("nova").onclick = () => (location.hash = "#/nova");
   const fd = document.getElementById("fechaDica");
   if (fd) fd.onclick = () => { try { localStorage.setItem("atas-dica", "1"); } catch {} fd.parentElement.remove(); };
 
-  const { data, error } = await sb.from("ata_reunioes").select("id,titulo,data_reuniao,duracao_seg,status,local").order("data_reuniao", { ascending: false });
+  let data;
+  try { data = await api("/api/reunioes"); }
+  catch (e) { const el = document.getElementById("lista"); if (el) el.innerHTML = `<div class="vazio">Não consegui carregar. ${esc(e.message)}</div>`; return; }
   const el = document.getElementById("lista");
   if (!el) return;
-  if (error) { el.innerHTML = `<div class="vazio">Não consegui carregar. ${esc(error.message)}</div>`; return; }
   if (!data.length) {
     el.innerHTML = `<div class="vazio"><div class="grande">Nenhuma reunião ainda</div>Toque em <b>Nova reunião</b>, deixe o iPhone no meio da mesa e grave. A ata sai pronta no final.</div>`;
     return;
@@ -520,15 +470,14 @@ async function telaLista() {
       <div class="titulo">${esc(r.titulo)}</div>
       <div class="meta"><span>${dataTexto(r.data_reuniao)}</span>${r.duracao_seg ? `<span>· ${duracaoTexto(r.duracao_seg)}</span>` : ""}${selo(r.status)}</div>
     </a>`).join("")}</div>`;
-  // continua processando o que tiver ficado pela metade
-  data.filter((r) => r.status === "transcrevendo" || r.status === "gerando_ata").forEach((r) => processarReuniao(r.id));
+  // atualiza sozinho enquanto alguma ata estiver sendo feita no servidor
+  if (data.some((r) => r.status === "transcrevendo" || r.status === "gerando_ata")) pollTimer = setInterval(() => { if (location.hash === "" || location.hash === "#/") telaLista(); }, 8000);
 }
 
 async function telaForm(id) {
   let r = { titulo: "", local: "", participantes: "", pauta: "" };
   if (id) {
-    const { data } = await sb.from("ata_reunioes").select("*").eq("id", id).single();
-    if (data) r = data;
+    try { const d = await api(`/api/reunioes/${id}`); r = d.reuniao; } catch (e) { toast(e.message); }
   }
   $app.innerHTML = `
     <div class="topo"><button class="icone" id="voltar" aria-label="Voltar">${ic.voltar}</button><h2>${id ? "Dados da reunião" : "Nova reunião"}</h2><span style="width:44px"></span></div>
@@ -543,11 +492,11 @@ async function telaForm(id) {
   document.getElementById("f").onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target));
-    const dados = { titulo: fd.titulo.trim() || "Reunião", local: fd.local.trim() || null, participantes: fd.participantes.trim() || null, pauta: fd.pauta.trim() || null };
+    const dados = { titulo: fd.titulo.trim() || "Reunião", local: fd.local.trim(), participantes: fd.participantes.trim(), pauta: fd.pauta.trim() };
     const b = document.getElementById("ok"); b.disabled = true;
     if (id) {
-      const { error } = await sb.from("ata_reunioes").update(dados).eq("id", id);
-      if (error) { toast(error.message); b.disabled = false; return; }
+      try { await api(`/api/reunioes/${id}`, { method: "PUT", json: dados }); }
+      catch (e) { toast(e.message); b.disabled = false; return; }
       location.hash = `#/r/${id}`;
       return;
     }
@@ -558,12 +507,13 @@ async function telaForm(id) {
       toast("Preciso de acesso ao microfone. Libere em Ajustes do iPhone.", 5000);
       b.disabled = false; return;
     }
-    const { data: nova, error } = await sb.from("ata_reunioes").insert({ ...dados, status: "gravando" }).select().single();
-    if (error) { stream.getTracks().forEach((t) => t.stop()); toast(error.message); b.disabled = false; return; }
+    let nova;
+    try { nova = await api("/api/reunioes", { method: "POST", json: dados }); }
+    catch (e) { stream.getTracks().forEach((t) => t.stop()); toast(e.message); b.disabled = false; return; }
     const g = new Gravador(nova);
     try { await g.iniciar(stream); }
     catch (err) {
-      await sb.from("ata_reunioes").delete().eq("id", nova.id);
+      try { await api(`/api/reunioes/${nova.id}`, { method: "DELETE" }); } catch {}
       toast("Não consegui iniciar a gravação neste aparelho.", 5000);
       b.disabled = false; return;
     }
@@ -614,7 +564,7 @@ async function telaGravar(id) {
         ? `<div class="aviso vermelho">O iPhone parou o microfone (tela bloqueada ou outro app). O que já foi gravado está salvo. Toque em <b>Continuar</b> para seguir gravando.</div>`
         : `<div class="aviso">Deixe o app aberto e a tela ligada. Se a tela bloquear, o iPhone pode parar a gravação, mas nada do que já foi gravado se perde.</div>`;
     }
-    $env.textContent = g.enviados ? `${g.enviados} trecho(s) já salvos e sendo transcritos` : "";
+    $env.textContent = g.enviados ? `${g.enviados} trecho(s) já salvos no servidor e sendo transcritos` : "";
   };
   g.onTick();
 
@@ -629,9 +579,10 @@ async function telaGravar(id) {
     const seg = Math.round(g.segundos);
     await g.parar();
     gravador = null;
-    await sb.from("ata_reunioes").update({ status: "transcrevendo", duracao_seg: seg }).eq("id", id);
+    await recuperarPendentes().catch(() => 0);
+    try { await api(`/api/reunioes/${id}/finalizar`, { method: "POST", json: { duracao_seg: seg } }); }
+    catch (e) { toast(e.message, 5000); }
     location.replace(`#/r/${id}`);
-    recuperarPendentes().finally(() => processarReuniao(id));
   };
 }
 
@@ -647,13 +598,16 @@ async function telaDetalhe(id) {
   document.getElementById("editarDados").onclick = () => (location.hash = `#/editar/${id}`);
 
   async function carregar() {
-    const [a, b] = await Promise.all([
-      sb.from("ata_reunioes").select("*").eq("id", id).single(),
-      sb.from("ata_segmentos").select("id,ordem,status,erro,transcricao,audio_path,duracao_seg").eq("reuniao_id", id).order("ordem"),
-    ]);
-    if (a.error) { $app.innerHTML = `<div class="vazio">Reunião não encontrada. <a href="#/">Voltar</a></div>`; return false; }
-    reu = a.data; segs = b.data || [];
-    return true;
+    try {
+      const d = await api(`/api/reunioes/${id}`);
+      reu = d.reuniao; segs = d.segmentos || [];
+      return true;
+    } catch (e) {
+      if (e.status === 401) return false;
+      if (e.status === 404) { $app.innerHTML = `<div class="vazio">Reunião não encontrada. <a href="#/">Voltar</a></div>`; return false; }
+      if (!reu) { $app.innerHTML = `<div class="vazio">${esc(e.message)} <a href="#/">Voltar</a></div>`; }
+      return false;
+    }
   }
 
   function painelStatus() {
@@ -664,7 +618,7 @@ async function telaDetalhe(id) {
         <div class="linha-btns"><button class="btn primario" id="finalizar" ${total ? "" : "disabled"}>Gerar ata com o que foi gravado</button><button class="btn" id="continuarGrav">Continuar gravando</button></div></div>`;
     }
     if (reu.status === "transcrevendo") {
-      return `<div class="painel-status"><div class="t"><span class="girando"></span> Transcrevendo o áudio</div><div class="d">${ok} de ${total} trecho(s) prontos. Deixe o app aberto até terminar.</div><div class="barra"><i style="width:${total ? Math.round((ok / total) * 100) : 5}%"></i></div></div>`;
+      return `<div class="painel-status"><div class="t"><span class="girando"></span> Transcrevendo o áudio</div><div class="d">${ok} de ${total} trecho(s) prontos. O servidor continua mesmo se você fechar o app.</div><div class="barra"><i style="width:${total ? Math.round((ok / total) * 100) : 5}%"></i></div></div>`;
     }
     if (reu.status === "gerando_ata") {
       return `<div class="painel-status"><div class="t"><span class="girando"></span> Escrevendo a ata</div><div class="d">Leva menos de um minuto.</div><div class="barra"><i style="width:92%"></i></div></div>`;
@@ -691,7 +645,7 @@ async function telaDetalhe(id) {
     const corpo = document.getElementById("corpo");
     if (aba === "ata") corpo.innerHTML = htmlAta();
     if (aba === "transcricao") corpo.innerHTML = htmlTranscricao();
-    if (aba === "audio") { corpo.innerHTML = htmlAudio(); carregarAudios(); }
+    if (aba === "audio") corpo.innerHTML = htmlAudio();
     ligarAcoes();
   }
 
@@ -736,7 +690,7 @@ async function telaDetalhe(id) {
       return `<div class="trecho">
         <div class="cab"><span>Trecho ${s.ordem + 1} · ${relogio(de)}–${relogio(ini)}</span><span class="selo ${s.status === "ok" ? "pronta" : s.status === "erro" ? "erro" : "processando"}">${st}</span></div>
         ${s.erro && s.status === "erro" ? `<div class="err">${esc(s.erro)}</div><button class="btn bloco" data-refazer="${s.id}" style="margin-bottom:8px">${ic.refazer} Transcrever de novo</button>` : ""}
-        <audio controls preload="none" data-path="${esc(s.audio_path)}"></audio>
+        ${s.audio_bytes ? `<audio controls preload="none" src="${BASE}/api/trechos/${s.id}/audio"></audio>` : ""}
       </div>`;
     }).join("") + perigo();
   }
@@ -746,19 +700,11 @@ async function telaDetalhe(id) {
       <button class="btn perigo bloco" id="excluir">Excluir reunião</button>
     </div>`;
 
-  async function carregarAudios() {
-    const els = [...document.querySelectorAll("audio[data-path]")];
-    if (!els.length) return;
-    const { data } = await sb.storage.from(BUCKET).createSignedUrls(els.map((e) => e.dataset.path), 3600);
-    (data || []).forEach((d, i) => { if (d.signedUrl && els[i]) els[i].src = d.signedUrl; });
-  }
-
   function ligarStatus() {
     const fin = document.getElementById("finalizar");
     if (fin) fin.onclick = async () => {
-      const seg = segs.reduce((s, x) => s + (x.duracao_seg || 0), 0);
-      await sb.from("ata_reunioes").update({ status: "transcrevendo", duracao_seg: seg }).eq("id", id);
-      await recarregar(); processarReuniao(id);
+      try { await api(`/api/reunioes/${id}/finalizar`, { method: "POST", json: {} }); } catch (e) { toast(e.message); }
+      await recarregar();
     };
     const cont = document.getElementById("continuarGrav");
     if (cont) cont.onclick = async () => {
@@ -771,9 +717,8 @@ async function telaDetalhe(id) {
     };
     const tent = document.getElementById("tentar");
     if (tent) tent.onclick = async () => {
-      await sb.from("ata_segmentos").update({ status: "pendente", erro: null }).eq("reuniao_id", id).in("status", ["erro", "processando"]);
-      await sb.from("ata_reunioes").update({ status: "transcrevendo", erro: null }).eq("id", id);
-      await recarregar(); processarReuniao(id, { forcarAta: true });
+      try { await api(`/api/reunioes/${id}/tentar-novamente`, { method: "POST" }); } catch (e) { toast(e.message); }
+      await recarregar();
     };
   }
 
@@ -792,32 +737,26 @@ async function telaDetalhe(id) {
     on("cancelar", () => { editando = false; render(); });
     on("salvar", async () => {
       const ata = document.getElementById("txtAta").value;
-      const { error } = await sb.from("ata_reunioes").update({ ata }).eq("id", id);
-      if (error) return toast(error.message);
+      try { await api(`/api/reunioes/${id}/ata`, { method: "PUT", json: { ata } }); } catch (e) { return toast(e.message); }
       reu.ata = ata; editando = false; render(); toast("Ata salva");
     });
     on("refazerAta", async () => {
       if (!confirm("Gerar a ata de novo? As edições que você fez nela serão substituídas.")) return;
-      processarReuniao(id, { forcarAta: true });
-      setTimeout(recarregar, 600);
+      try { await api(`/api/reunioes/${id}/finalizar`, { method: "POST", json: {} }); } catch (e) { return toast(e.message); }
+      await recarregar();
     });
     document.querySelectorAll("[data-refazer]").forEach((b) => (b.onclick = async () => {
-      await sb.from("ata_segmentos").update({ status: "pendente", erro: null }).eq("id", b.dataset.refazer);
-      await sb.from("ata_reunioes").update({ status: "transcrevendo", erro: null }).eq("id", id);
-      await recarregar(); processarReuniao(id, { forcarAta: true });
+      try { await api(`/api/trechos/${b.dataset.refazer}/tentar-novamente`, { method: "POST" }); } catch (e) { toast(e.message); }
+      await recarregar();
     }));
     on("apagarAudio", async () => {
       if (!confirm("Apagar o áudio desta reunião? A transcrição e a ata ficam guardadas.")) return;
-      const { error } = await sb.storage.from(BUCKET).remove(segs.map((s) => s.audio_path));
-      if (error) return toast(error.message);
-      await sb.from("ata_reunioes").update({ audio_apagado: true }).eq("id", id);
+      try { await api(`/api/reunioes/${id}/audio`, { method: "DELETE" }); } catch (e) { return toast(e.message); }
       toast("Áudio apagado"); recarregar();
     });
     on("excluir", async () => {
       if (!confirm("Excluir esta reunião com áudio, transcrição e ata? Não dá para desfazer.")) return;
-      if (segs.length && !reu.audio_apagado) await sb.storage.from(BUCKET).remove(segs.map((s) => s.audio_path));
-      const { error } = await sb.from("ata_reunioes").delete().eq("id", id);
-      if (error) return toast(error.message);
+      try { await api(`/api/reunioes/${id}`, { method: "DELETE" }); } catch (e) { return toast(e.message); }
       toast("Reunião excluída"); location.hash = "#/";
     });
   }
@@ -833,9 +772,8 @@ async function telaDetalhe(id) {
   if (!(await carregar())) return;
   render();
 
-  if (reu.status === "transcrevendo" || reu.status === "gerando_ata") processarReuniao(id);
   pollTimer = setInterval(() => {
-    if (["transcrevendo", "gerando_ata"].includes(reu?.status)) recarregar();
+    if (["transcrevendo", "gerando_ata"].includes(reu?.status) || segs.some((x) => x.status === "pendente" || x.status === "processando")) recarregar();
   }, 4000);
 }
 
@@ -843,18 +781,21 @@ async function telaDetalhe(id) {
 window.addEventListener("hashchange", rotas);
 window.addEventListener("beforeunload", (e) => { if (gravador) { e.preventDefault(); e.returnValue = ""; } });
 
-let iniciado = false;
-sb.auth.onAuthStateChange((_ev, session) => {
-  const antes = usuario?.id;
-  usuario = session?.user ?? null;
-  if (!iniciado || antes !== usuario?.id) {
-    iniciado = true;
-    // fora do callback de auth, para não travar o cliente do Supabase
-    setTimeout(() => {
-      rotas();
-      if (usuario) recuperarPendentes().then((n) => { if (n) toast(`${n} trecho(s) recuperado(s) e enviados`); });
-    }, 0);
+async function iniciar() {
+  try {
+    const r = await fetch(rota("/api/me"), { credentials: "same-origin" });
+    if (r.status === 401) return telaLogin();
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    usuario = d.user; csrf = d.csrf;
+    if (location.search.includes("authError")) history.replaceState(null, "", location.pathname + location.hash);
+    rotas();
+    recuperarPendentes().then((n) => { if (n) toast(`${n} trecho(s) recuperado(s) e enviados`); }).catch(() => {});
+  } catch {
+    $app.innerHTML = `<div class="vazio">Não consegui falar com o servidor.<br><br><button class="btn" id="recarregar">Tentar de novo</button></div>`;
+    document.getElementById("recarregar").onclick = () => location.reload();
   }
-});
+}
+iniciar();
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register(rota("/sw.js"), { scope: BASE + "/" }).catch(() => {});

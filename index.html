@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Atas</title>
+  <meta name="app-base" content="__APP_BASE__">
+  <title>Atas • Solven</title>
   <meta name="description" content="Grave reuniões e gere a ata automaticamente.">
   <meta name="theme-color" content="#f5f1ea" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)">
@@ -11,25 +12,14 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Atas">
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icons/icon-192.png">
-  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=4">
-  <link rel="stylesheet" href="/pdf.css?v=3">
+  <link rel="manifest" href="__APP_BASE__/manifest.webmanifest">
+  <link rel="icon" href="__APP_BASE__/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="__APP_BASE__/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="__APP_BASE__/style.css">
+  <script type="module" src="__APP_BASE__/app.js"></script>
 </head>
 <body>
-  <div id="app" aria-live="polite"><div style="text-align:center;padding:30vh 16px 0;color:#8a8e98">Carregando…</div></div>
+  <div id="app" aria-live="polite"><div class="vazio">Carregando…</div></div>
   <div id="toast" role="status"></div>
-  <script type="module" src="/app.js?v=5"></script>
-  <script>
-    // se o app não iniciar em 8 s, mostra um aviso em vez de tela em branco
-    setTimeout(function () {
-      var a = document.getElementById("app");
-      if (a && a.textContent.trim() === "Carregando…") a.innerHTML = '<div style="text-align:center;padding:30vh 16px 0">Não consegui carregar o app.<br><br><button onclick="location.reload()" style="padding:12px 20px;border-radius:12px;border:1px solid #ccc;font:inherit">Tentar de novo</button></div>';
-    }, 8000);
-  </script>
 </body>
 </html>
