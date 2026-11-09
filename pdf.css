@@ -1,0 +1,157 @@
+/* Ata Solven — baseado em templates/pdf_ata_resumo_reuniao do Sistema Visual Solven.
+   Tokens oficiais: azul #013F7D (estrutura) e vermelho #D92323 (acento).
+   Fonte oficial Now não está disponível no app: usa o fallback oficial Arial/Helvetica. */
+
+#impressao { display: none; }
+
+.sv {
+  --sv-blue: #013f7d;
+  --sv-red: #d92323;
+  --sv-ink: #1f2933;
+  --sv-ink-2: #64748b;
+  --sv-line: #e2e8f0;
+  --sv-gray-300: #cbd5e1;
+  --sv-gray-050: #f8fafc;
+  color: var(--sv-ink);
+  background: #fff;
+  font-family: "Now", Arial, Helvetica, sans-serif;
+  font-size: 9.4pt;
+  line-height: 1.38;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.sv * { box-sizing: border-box; }
+.sv h1, .sv h2, .sv h3, .sv p { margin: 0; }
+.sv p { color: var(--sv-ink-2); }
+.sv img { display: block; max-width: 100%; }
+
+/* Cabeçalho simples (primeira página) */
+.sv-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 0 6mm; border-bottom: 1px solid var(--sv-line);
+}
+.sv-header img { width: 42mm; height: auto; }
+.sv-header div { text-align: right; }
+.sv-header p { color: var(--sv-ink-2); font-size: 7.6pt; text-transform: uppercase; letter-spacing: .04em; }
+.sv-header strong { color: var(--sv-blue); font-size: 11pt; }
+
+/* Rodapé no fim do documento */
+.sv-footer {
+  display: flex; justify-content: space-between; gap: 6mm; margin-top: 8mm;
+  border-top: 1px solid var(--sv-line); padding-top: 2.5mm;
+  color: var(--sv-ink-2); font-size: 7.4pt; break-inside: avoid;
+}
+
+/* Título + metadados */
+.sv-title {
+  display: grid; grid-template-columns: minmax(0, 1fr) 52mm; gap: 8mm;
+  margin-top: 8mm; padding-bottom: 6mm; border-bottom: 2px solid var(--sv-blue);
+}
+.sv .sv-kicker { color: var(--sv-red); font-size: 8.4pt; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.sv-title h1 { margin-top: 3mm; color: var(--sv-ink); font-size: 22pt; line-height: 1.1; font-weight: 700; }
+.sv-title .sv-sintese { margin-top: 3.5mm; font-size: 9.8pt; line-height: 1.4; }
+.sv-meta {
+  display: grid; gap: 2.4mm; align-self: start; padding: 4mm;
+  border: 1px solid var(--sv-line); background: var(--sv-gray-050);
+}
+.sv-meta div { display: grid; gap: .6mm; }
+.sv-meta span, .sv-label {
+  color: var(--sv-ink-2); font-size: 7.4pt; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+}
+.sv-meta strong { color: var(--sv-blue); font-size: 9.4pt; line-height: 1.25; }
+.sv-label { color: var(--sv-blue); }
+
+/* Faixa-resumo */
+.sv-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4mm; margin-top: 7mm; }
+.sv-strip article {
+  border: 1px solid var(--sv-line); border-top: 3px solid var(--sv-red); padding: 3.5mm 4mm; break-inside: avoid;
+}
+.sv-strip span { color: var(--sv-blue); font-size: 7.4pt; font-weight: 700; text-transform: uppercase; }
+.sv-strip strong { display: block; margin-top: 1.6mm; color: var(--sv-ink); font-size: 10.5pt; line-height: 1.22; }
+
+/* Seções */
+.sv-section { margin-top: 8mm; }
+.sv-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 4mm;
+  margin-bottom: 4mm; padding-bottom: 2mm; border-bottom: 2px solid var(--sv-blue);
+  break-after: avoid;
+}
+.sv-heading h2 { color: var(--sv-blue); font-size: 13pt; font-weight: 700; }
+.sv-heading span {
+  border-radius: 3px; background: rgba(1, 63, 125, .1); color: var(--sv-blue);
+  font-size: 7.4pt; font-weight: 700; padding: 1.2mm 2.2mm; text-transform: uppercase; white-space: nowrap;
+}
+
+/* Pauta com marcador numérico oficial (apenas o número dentro da seta) */
+.sv-pauta { display: grid; gap: 0; }
+.sv-pauta article {
+  display: grid; grid-template-columns: 17mm minmax(0, 1fr); align-items: center; gap: 4mm;
+  padding: 2.6mm 0; border-bottom: 1px solid var(--sv-line); break-inside: avoid;
+}
+.sv-step {
+  display: grid; place-items: center; width: 16mm; height: 6.4mm;
+  background: url("brand/solven-step-marker.png") no-repeat center / 100% 100%;
+  color: #fff; font-size: 8pt; font-weight: 700; line-height: 1;
+}
+.sv-pauta strong { color: var(--sv-ink); font-size: 10pt; line-height: 1.3; }
+
+/* Discussões */
+.sv-topico { padding: 3.2mm 0 3.6mm; border-bottom: 1px solid var(--sv-line); }
+.sv-topico:last-child { border-bottom: 0; }
+.sv-topico h3 { color: var(--sv-ink); font-size: 10.6pt; font-weight: 700; line-height: 1.28; break-after: avoid; }
+.sv-topico p { margin-top: 1.8mm; font-size: 9.2pt; line-height: 1.45; orphans: 3; widows: 3; }
+
+/* Decisões */
+.sv-decisoes { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+.sv-decisao { border: 1px solid var(--sv-line); border-left: 3px solid var(--sv-blue); padding: 3.6mm 4mm; break-inside: avoid; }
+.sv-decisao span { color: var(--sv-blue); font-size: 7.4pt; font-weight: 700; text-transform: uppercase; }
+.sv-decisao p { margin-top: 1.6mm; color: var(--sv-ink); font-size: 9.2pt; line-height: 1.38; }
+.sv-decisoes.sv-uma { grid-template-columns: 1fr; }
+
+/* Encaminhamentos */
+.sv table { width: 100%; border-collapse: collapse; }
+.sv th, .sv td {
+  border-bottom: 1px solid var(--sv-line); padding: 5pt 7pt; text-align: left; vertical-align: top;
+  font-size: 8.6pt; line-height: 1.26;
+}
+.sv th { background: var(--sv-gray-050); color: var(--sv-blue); font-weight: 700; }
+.sv tr { break-inside: avoid; }
+.sv td:nth-child(2) { color: var(--sv-blue); font-weight: 700; }
+.sv td:nth-child(3), .sv td:nth-child(4) { white-space: nowrap; }
+.sv-vazio { color: var(--sv-ink-2); font-style: normal; }
+
+/* Pendências + participantes */
+.sv-bottom { display: grid; grid-template-columns: 1.05fr .95fr; gap: 5mm; margin-top: 8mm; break-inside: avoid; }
+.sv-pend { border-left: 4px solid var(--sv-red); background: rgba(217, 35, 35, .06); padding: 4mm; }
+.sv-part { border: 1px solid var(--sv-line); background: var(--sv-gray-050); padding: 4mm; }
+.sv-pend > span, .sv-part > span { color: var(--sv-blue); font-size: 7.4pt; font-weight: 700; text-transform: uppercase; }
+.sv-lista { list-style: none; margin: 2.6mm 0 0; padding: 0; }
+.sv-lista li {
+  position: relative; padding-left: 4.6mm; color: var(--sv-ink-2); font-size: 8.8pt; line-height: 1.32;
+}
+.sv-lista li + li { margin-top: 1.4mm; }
+.sv-lista li::before {
+  content: ""; position: absolute; top: .24em; left: .35mm; width: 2.2mm; height: 3.2mm;
+  background: url("brand/solven-list-marker.png") no-repeat center / 100% 100%;
+}
+
+/* Encerramento */
+.sv-encerra { margin-top: 7mm; border-left: 4px solid var(--sv-blue); background: var(--sv-gray-050); padding: 4mm 5mm; break-inside: avoid; }
+.sv-encerra p { margin-top: 1.6mm; color: var(--sv-ink); font-size: 9.2pt; }
+
+/* Confirmação */
+.sv-confirma { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4mm; margin-top: 8mm; break-inside: avoid; }
+.sv-confirma div { min-height: 22mm; border: 1px dashed var(--sv-gray-300); padding: 3.6mm 4mm; display: flex; flex-direction: column; }
+.sv-confirma span { color: var(--sv-ink-2); font-size: 7.4pt; font-weight: 700; text-transform: uppercase; }
+.sv-confirma strong { margin-top: auto; padding-top: 2mm; border-top: 1px solid var(--sv-gray-300); color: var(--sv-blue); font-size: 8.4pt; font-weight: 700; }
+
+.sv-nota { margin-top: 5mm; color: var(--sv-ink-2); font-size: 7.4pt; }
+
+@page { size: A4; margin: 14mm 16mm 18mm; }
+
+@media print {
+  html.imprimindo { color-scheme: light !important; }
+  html.imprimindo, html.imprimindo body { background: #fff !important; }
+  html.imprimindo body > *:not(#impressao) { display: none !important; }
+  html.imprimindo #impressao { display: block; }
+}
